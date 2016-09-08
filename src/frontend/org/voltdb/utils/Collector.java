@@ -25,10 +25,13 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -50,6 +53,7 @@ import org.json_voltpatches.JSONObject;
 import org.json_voltpatches.JSONStringer;
 import org.voltcore.utils.CoreUtils;
 import org.voltdb.CLIConfig;
+import org.voltdb.VoltDB;
 import org.voltdb.compiler.deploymentfile.DeploymentType;
 import org.voltdb.compiler.deploymentfile.PathsType;
 import org.voltdb.processtools.SFTPSession;
@@ -60,7 +64,6 @@ import org.voltdb.types.TimestampType;
 import com.google_voltpatches.common.base.Charsets;
 import com.google_voltpatches.common.base.Throwables;
 import com.google_voltpatches.common.net.HostAndPort;
-import org.voltdb.VoltDB;
 
 public class Collector {
     private static String m_configInfoPath = null;
@@ -277,6 +280,32 @@ public class Collector {
         }
     }
 
+    private static String getLinuxOSInfo() {
+        // Supported Linux OS for voltdb are CentOS, Redhat and Ubuntu
+        String versionInfo = "";
+        try {
+            BufferedReader br = null;
+            if (Files.exists(Paths.get("/etc/lsb-release"))) {
+                // base Ubuntu/new Debian based Linux have the dist info in /etc/lsb-release
+                br = new BufferedReader(new FileReader("/etc/lsb-release"));
+            }
+            else if (Files.exists(Paths.get("/etc/redhat-release"))) {
+                // base RedHat/CentOS/other RedHat based Linux have the dist info in /etc/redhat-release
+                br = new BufferedReader(new FileReader("/etc/redhat-release"));
+            }
+
+            if (br != null) {
+                StringBuffer buffer = new StringBuffer();
+                while ((versionInfo = br.readLine()) != null) {
+                    buffer.append(versionInfo);
+                }
+                versionInfo = buffer.toString();
+            }
+        }
+        catch (IOException io) {}
+        return versionInfo;
+    }
+
     private static Set<String> setCollection(boolean skipHeapDump) {
         Set<String> collectionFilesList = new HashSet<String>();
 
@@ -329,14 +358,13 @@ public class Collector {
             if (System.getProperty("os.name").startsWith("Mac")) {
                 systemLogBase = "system.log";
             } else {
-                String[] unameCmd = {"bash", "-c", "lsb_release -id"};
-                Process p = Runtime.getRuntime().exec(unameCmd);
-                BufferedReader reader = new BufferedReader(new InputStreamReader(p.getInputStream()));
-                String line = reader.readLine();
-                if (line.contains("Ubuntu"))
+                String versionInfo = getLinuxOSInfo();
+                if (!versionInfo.isEmpty() && versionInfo.contains("Ubuntu")) {
                     systemLogBase = "syslog";
-                else
+                }
+                else {
                     systemLogBase = "messages";
+                }
             }
             for (File file: new File("/var/log/").listFiles()) {
                 if (file.getName().startsWith(systemLogBase)) {
